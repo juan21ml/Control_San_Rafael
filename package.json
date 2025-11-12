@@ -1,0 +1,38 @@
+{
+  "name": "hospital-equipment-control",
+  "version": "1.0.0",
+  "description": "Sistema de Control de Equipos - Hospital San Rafael de Tunja",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest",
+    "lint": "eslint src --ext js,jsx"
+  },
+  "keywords": [
+    "hospital",
+    "equipment",
+    "control",
+    "pds006"
+  ],
+  "author": "Tu Nombre",
+  "license": "MIT",
+  "dependencies": {
+    "lucide-react": "^0.263.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.1.5",
+    "@testing-library/react": "^14.1.2",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.22",
+    "eslint": "^8.55.0",
+    "eslint-plugin-react": "^7.33.2",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.17",
+    "vite": "^5.0.8",
+    "vitest": "^1.0.4"
+  }
+}
