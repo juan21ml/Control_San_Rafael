@@ -3,7 +3,7 @@ import { Camera, QrCode, Download, Search, Plus, LogOut, LogIn, FileText, Shield
 
 const App = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [equipment, setEquipment] = useState([]);
+  const [equipment, setEquipment] = useState([]);  
   const [logs, setLogs] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [dateFilter, setDateFilter] = useState({ start: '', end: '' });
