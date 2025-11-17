@@ -1,15 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { Camera, QrCode, Download, Search, Plus, LogOut, LogIn, FileText, Shield, Clock, Package, AlertCircle, CheckCircle, XCircle, Filter, Calendar, User, Printer, RefreshCw, BarChart3, TrendingUp, Settings, Activity, Wrench } from 'lucide-react';
+import { api } from './services/api';
 
 const App = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [equipment, setEquipment] = useState([]);  
+  const [equipment, setEquipment] = useState([]);
   const [logs, setLogs] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [dateFilter, setDateFilter] = useState({ start: '', end: '' });
   const [showNotification, setShowNotification] = useState(false);
   const [notificationMessage, setNotificationMessage] = useState('');
   const [notificationType, setNotificationType] = useState('success');
+  const [loading, setLoading] = useState(false);
+  const [estadisticas, setEstadisticas] = useState({
+    equipos_dentro: 0,
+    equipos_fuera: 0,
+    total_equipos: 0,
+    movimientos_hoy: 0
+  });
 
   const [formData, setFormData] = useState({
     equipmentType: 'tecnologico',
@@ -23,7 +31,7 @@ const App = () => {
   });
 
   useEffect(() => {
-    loadSampleData();
+    loadAllData();
   }, []);
 
   const showNotificationMessage = (message, type = 'success') => {
@@ -33,133 +41,160 @@ const App = () => {
     setTimeout(() => setShowNotification(false), 3000);
   };
 
-  const loadSampleData = () => {
-    const sampleEquipment = [
-      {
-        id: 'EQ001',
-        type: 'tecnologico',
-        name: 'Laptop Dell Latitude 5420',
-        serial: 'DLL123456',
-        owner: 'Dr. Juan Pérez',
-        ownerType: 'personal',
-        frequency: 'frecuente',
-        qrCode: 'QR-EQ001',
-        status: 'inside',
-        entryTime: new Date().toISOString(),
-        photo: null
-      },
-      {
-        id: 'EQ002',
-        type: 'biomedico',
-        name: 'Monitor de Signos Vitales',
-        serial: 'MSV789012',
-        owner: 'Proveedor MedTech',
-        ownerType: 'proveedor',
-        frequency: 'esporadico',
-        qrCode: 'MSV789012',
-        status: 'outside',
-        entryTime: null,
-        photo: null
-      }
-    ];
+  const loadAllData = async () => {
+    setLoading(true);
+    try {
+      await Promise.all([
+        loadEquipment(),
+        loadMovements(),
+        loadStatistics()
+      ]);
+    } catch (error) {
+      console.error('Error al cargar datos:', error);
+      showNotificationMessage('Error al cargar datos del servidor', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    const sampleLogs = [
-      {
-        id: 'LOG001',
-        equipmentId: 'EQ001',
-        equipmentName: 'Laptop Dell Latitude 5420',
-        action: 'entry',
-        timestamp: new Date().toISOString(),
-        user: 'Admin Usuario',
-        owner: 'Dr. Juan Pérez'
+  const loadEquipment = async () => {
+    try {
+      const response = await api.getEquipos();
+      console.log('📦 Respuesta de equipos:', response);
+      
+      if (response.success && response.data) {
+        const mappedEquipment = response.data.map(eq => ({
+          id: eq.id,
+          code: eq.codigo_equipo,
+          name: eq.nombre,
+          serial: eq.serial,
+          type: eq.tipo_equipo,
+          owner: eq.propietario,
+          ownerType: eq.tipo_propietario,
+          frequency: eq.frecuencia,
+          qrCode: eq.codigo_qr,
+          status: eq.estado_actual === 'dentro' ? 'inside' : 'outside',
+          entryTime: eq.fecha_registro,
+          photo: eq.foto_url
+        }));
+        
+        console.log('✅ Equipos mapeados:', mappedEquipment);
+        setEquipment(mappedEquipment);
       }
-    ];
+    } catch (error) {
+      console.error('❌ Error al cargar equipos:', error);
+      showNotificationMessage('Error al cargar equipos', 'error');
+    }
+  };
 
-    setEquipment(sampleEquipment);
-    setLogs(sampleLogs);
+  const loadMovements = async () => {
+    try {
+      const response = await api.getMovimientos();
+      if (response.success && response.data) {
+        const mappedLogs = response.data.map(mov => ({
+          id: mov.id,
+          equipmentId: mov.codigo_equipo,
+          equipmentName: mov.equipo_nombre,
+          action: mov.tipo_movimiento === 'ingreso' ? 'entry' : 
+                  mov.tipo_movimiento === 'salida' ? 'exit' : 'registered',
+          timestamp: mov.fecha_hora,
+          user: mov.usuario_responsable || 'Sistema',
+          owner: mov.propietario
+        }));
+        setLogs(mappedLogs);
+      }
+    } catch (error) {
+      console.error('Error al cargar movimientos:', error);
+    }
+  };
+
+  const loadStatistics = async () => {
+    try {
+      const response = await api.getEstadisticas();
+      if (response.success && response.data) {
+        setEstadisticas(response.data);
+      }
+    } catch (error) {
+      console.error('Error al cargar estadísticas:', error);
+    }
   };
 
   const generateQRCode = () => {
     return `QR-${Date.now().toString(36).toUpperCase()}`;
   };
 
-  const handleRegisterEquipment = () => {
+  const handleRegisterEquipment = async () => {
     if (!formData.name || !formData.serial || !formData.owner) {
       showNotificationMessage('Por favor complete todos los campos obligatorios', 'error');
       return;
     }
 
-    const newEquipment = {
-      id: `EQ${String(equipment.length + 1).padStart(3, '0')}`,
-      ...formData,
-      qrCode: formData.frequency === 'frecuente' ? generateQRCode() : formData.serial,
-      status: 'outside',
-      entryTime: null,
-      exitTime: null
-    };
+    setLoading(true);
+    try {
+      const qrCode = formData.frequency === 'frecuente' ? generateQRCode() : formData.serial;
+      const codigoEquipo = `EQ${Date.now().toString().slice(-6)}`;
 
-    setEquipment([...equipment, newEquipment]);
-    
-    const log = {
-      id: `LOG${String(logs.length + 1).padStart(3, '0')}`,
-      equipmentId: newEquipment.id,
-      equipmentName: newEquipment.name,
-      action: 'registered',
-      timestamp: new Date().toISOString(),
-      user: 'Sistema Automatizado',
-      owner: newEquipment.owner
-    };
-    
-    setLogs([...logs, log]);
-    
-    showNotificationMessage(`Equipo ${newEquipment.name} registrado exitosamente`, 'success');
-    resetForm();
+      const equipoData = {
+        codigo_equipo: codigoEquipo,
+        nombre: formData.name,
+        serial: formData.serial,
+        tipo_equipo: formData.equipmentType,
+        propietario: formData.owner,
+        tipo_propietario: formData.ownerType,
+        frecuencia: formData.frequency,
+        codigo_qr: qrCode,
+        usuario_id: 1
+      };
+
+      const response = await api.createEquipo(equipoData);
+      
+      if (response.success) {
+        showNotificationMessage(`Equipo ${formData.name} registrado exitosamente`, 'success');
+        resetForm();
+        await loadAllData();
+      }
+    } catch (error) {
+      console.error('Error al registrar equipo:', error);
+      showNotificationMessage('Error al registrar equipo', 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleEntry = (eq) => {
-    const updatedEquipment = equipment.map(e => 
-      e.id === eq.id 
-        ? { ...e, status: 'inside', entryTime: new Date().toISOString() }
-        : e
-    );
-    
-    setEquipment(updatedEquipment);
-    
-    const log = {
-      id: `LOG${String(logs.length + 1).padStart(3, '0')}`,
-      equipmentId: eq.id,
-      equipmentName: eq.name,
-      action: 'entry',
-      timestamp: new Date().toISOString(),
-      user: 'Admin Usuario',
-      owner: eq.owner
-    };
-    
-    setLogs([...logs, log]);
-    showNotificationMessage(`✓ Ingreso autorizado: ${eq.name}`, 'success');
+  const handleEntry = async (eq) => {
+    setLoading(true);
+    try {
+      const response = await api.registrarIngreso(eq.id, 1, 'Ingreso autorizado');
+      
+      if (response.success) {
+        showNotificationMessage(`✓ Ingreso autorizado: ${eq.name}`, 'success');
+        await loadAllData();
+      }
+    } catch (error) {
+      console.error('Error al registrar ingreso:', error);
+      const errorMsg = error.response?.data?.message || 'Error al registrar ingreso';
+      showNotificationMessage(errorMsg, 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleExit = (eq) => {
-    const updatedEquipment = equipment.map(e => 
-      e.id === eq.id 
-        ? { ...e, status: 'outside', exitTime: new Date().toISOString() }
-        : e
-    );
-    
-    setEquipment(updatedEquipment);
-    
-    const log = {
-      id: `LOG${String(logs.length + 1).padStart(3, '0')}`,
-      equipmentId: eq.id,
-      equipmentName: eq.name,
-      action: 'exit',
-      timestamp: new Date().toISOString(),
-      user: 'Admin Usuario',
-      owner: eq.owner
-    };
-    
-    setLogs([...logs, log]);
-    showNotificationMessage(`✓ Salida registrada: ${eq.name}`, 'success');
+  const handleExit = async (eq) => {
+    setLoading(true);
+    try {
+      const response = await api.registrarSalida(eq.id, 1, 'Salida autorizada');
+      
+      if (response.success) {
+        showNotificationMessage(`✓ Salida registrada: ${eq.name}`, 'success');
+        await loadAllData();
+      }
+    } catch (error) {
+      console.error('Error al registrar salida:', error);
+      const errorMsg = error.response?.data?.message || 'Error al registrar salida';
+      showNotificationMessage(errorMsg, 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const resetForm = () => {
@@ -175,54 +210,60 @@ const App = () => {
     });
   };
 
-  const generateReport = () => {
-    let filteredLogs = logs;
-    
-    if (dateFilter.start && dateFilter.end) {
-      filteredLogs = logs.filter(log => {
-        const logDate = new Date(log.timestamp);
-        return logDate >= new Date(dateFilter.start) && logDate <= new Date(dateFilter.end);
-      });
-    }
-    
-    const reportContent = `
+  const generateReport = async () => {
+    setLoading(true);
+    try {
+      const response = await api.generarReporte(dateFilter.start, dateFilter.end);
+      
+      if (response.success) {
+        const reportData = response.data;
+        
+        const reportContent = `
 ═══════════════════════════════════════════════════════════════
     HOSPITAL SAN RAFAEL DE TUNJA
     REPORTE DE CONTROL DE EQUIPOS
 ═══════════════════════════════════════════════════════════════
 
 Generado: ${new Date().toLocaleString('es-CO')}
-${dateFilter.start && dateFilter.end ? `Período: ${dateFilter.start} al ${dateFilter.end}` : 'Todos los registros'}
+Período: ${reportData.periodo}
 
 RESUMEN:
-- Total de Movimientos: ${filteredLogs.length}
-- Ingresos: ${filteredLogs.filter(l => l.action === 'entry').length}
-- Salidas: ${filteredLogs.filter(l => l.action === 'exit').length}
+- Total de Movimientos: ${reportData.total_registros}
+- Ingresos: ${reportData.movimientos.filter(m => m.tipo_movimiento === 'ingreso').length}
+- Salidas: ${reportData.movimientos.filter(m => m.tipo_movimiento === 'salida').length}
 
 DETALLE:
-${filteredLogs.map(log => `
-${log.id} | ${new Date(log.timestamp).toLocaleString('es-CO')}
-Equipo: ${log.equipmentName}
-Acción: ${log.action.toUpperCase()}
-Propietario: ${log.owner}
-Usuario: ${log.user}
+${reportData.movimientos.map(mov => `
+${mov.codigo_log} | ${new Date(mov.fecha_hora).toLocaleString('es-CO')}
+Equipo: ${mov.equipo_nombre} (${mov.codigo_equipo})
+Serial: ${mov.serial}
+Acción: ${mov.tipo_movimiento.toUpperCase()}
+Propietario: ${mov.propietario}
+Usuario: ${mov.usuario_responsable || 'Sistema'}
 `).join('\n')}
 ═══════════════════════════════════════════════════════════════
-    `;
-    
-    const blob = new Blob([reportContent], { type: 'text/plain; charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `Reporte_HSR_${new Date().toISOString().split('T')[0]}.txt`;
-    a.click();
-    showNotificationMessage('✓ Reporte descargado exitosamente', 'success');
+        `;
+        
+        const blob = new Blob([reportContent], { type: 'text/plain; charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Reporte_HSR_${new Date().toISOString().split('T')[0]}.txt`;
+        a.click();
+        showNotificationMessage('✓ Reporte descargado exitosamente', 'success');
+      }
+    } catch (error) {
+      console.error('Error al generar reporte:', error);
+      showNotificationMessage('Error al generar reporte', 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const filteredEquipment = equipment.filter(eq => 
-    eq.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    eq.serial.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    eq.owner.toLowerCase().includes(searchTerm.toLowerCase())
+    eq.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    eq.serial?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    eq.owner?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const insideEquipment = equipment.filter(eq => eq.status === 'inside');
@@ -230,6 +271,34 @@ Usuario: ${log.user}
 
   return (
     <div className="app-container">
+      {loading && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0,0,0,0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999
+        }}>
+          <div style={{
+            background: 'white',
+            padding: '24px',
+            borderRadius: '12px',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '12px'
+          }}>
+            <RefreshCw style={{ animation: 'spin 1s linear infinite' }} size={32} />
+            <span style={{ fontWeight: 600 }}>Cargando...</span>
+          </div>
+        </div>
+      )}
+
       {showNotification && (
         <div className="notification-toast">
           <div className={`toast ${notificationType}`}>
@@ -308,17 +377,17 @@ Usuario: ${log.user}
                   <div className="stat-card-header">
                     <div>
                       <div className="stat-label">En Mantenimiento</div>
-                      <div className="stat-value">{insideEquipment.length}</div>
-                      <div className="stat-description">3 programados hoy</div>
+                      <div className="stat-value">{estadisticas.equipos_dentro}</div>
+                      <div className="stat-description">{estadisticas.movimientos_hoy} movimientos hoy</div>
                     </div>
-                   
+                    <div className="stat-icon"><Wrench /></div>
                   </div>
                 </div>
                 <div className="stat-card blue">
                   <div className="stat-card-header">
                     <div>
                       <div className="stat-label">Fuera de Servicio</div>
-                      <div className="stat-value">{outsideEquipment.length}</div>
+                      <div className="stat-value">{estadisticas.equipos_fuera}</div>
                       <div className="stat-description">Requieren atención urgente</div>
                     </div>
                     <div className="stat-icon"><AlertCircle /></div>
@@ -328,7 +397,7 @@ Usuario: ${log.user}
                   <div className="stat-card-header">
                     <div>
                       <div className="stat-label">Total Equipos</div>
-                      <div className="stat-value">{equipment.length}</div>
+                      <div className="stat-value">{estadisticas.total_equipos}</div>
                       <div className="stat-description">Registrados en sistema</div>
                     </div>
                     <div className="stat-icon"><Package /></div>
@@ -381,7 +450,7 @@ Usuario: ${log.user}
                     ) : (
                       insideEquipment.map(eq => (
                         <tr key={eq.id}>
-                          <td><strong>{eq.id}</strong></td>
+                          <td><strong>{eq.code || eq.id}</strong></td>
                           <td>
                             <div className="equipment-info">
                               <div className={`equipment-icon ${eq.type === 'tecnologico' ? 'tech' : 'bio'}`}>
@@ -532,7 +601,7 @@ Usuario: ${log.user}
                   ) : (
                     filteredEquipment.map(eq => (
                       <tr key={eq.id}>
-                        <td><strong>{eq.id}</strong></td>
+                        <td><strong>{eq.code || eq.id}</strong></td>
                         <td>
                           <div className="equipment-info">
                             <div className={`equipment-icon ${eq.type === 'tecnologico' ? 'tech' : 'bio'}`}>
